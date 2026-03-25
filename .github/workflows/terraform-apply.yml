@@ -1,0 +1,48 @@
+# Runs when a PR is merged to main — actually creates/updates GCP infrastructure
+# This modifies real resources, so it only runs after code review + merge
+name: Terraform Apply
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'terraform/**'  # Only runs when Terraform files change
+
+permissions:
+  contents: read
+  id-token: write             # Needed for Workload Identity Federation
+
+jobs:
+  terraform-apply:
+    name: Terraform Apply
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: terraform/environments/dev
+
+    steps:
+      # 1. Check out your code
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 2. Authenticate to GCP (same keyless auth as plan)
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      # 3. Install Terraform
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.0
+
+      # 4. Initialize Terraform
+      - name: Terraform Init
+        run: terraform init
+
+      # 5. Apply the changes (auto-approve because it was already reviewed in PR)
+      - name: Terraform Apply
+        run: terraform apply -auto-approve

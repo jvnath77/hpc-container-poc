@@ -1,0 +1,87 @@
+# Runs on every Pull Request to show what Terraform WILL change
+# This is safe — it only reads, never modifies infrastructure
+name: Terraform Plan
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'terraform/**'  # Only runs when Terraform files change
+
+permissions:
+  contents: read
+  pull-requests: write        # Needed to post plan as PR comment
+  id-token: write             # Needed for Workload Identity Federation (keyless auth to GCP)
+
+jobs:
+  terraform-plan:
+    name: Terraform Plan
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: terraform/environments/dev
+
+    steps:
+      # 1. Check out your code
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 2. Authenticate to GCP using Workload Identity Federation (no JSON keys!)
+      #    This is the recommended way — GitHub proves its identity to GCP
+      #    without storing any secrets
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}    # Format: projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/POOL_ID/providers/PROVIDER_ID
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}        # Format: terraform@PROJECT_ID.iam.gserviceaccount.com
+
+      # 3. Install Terraform
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.0
+
+      # 4. Initialize Terraform (downloads providers, connects to state backend)
+      - name: Terraform Init
+        run: terraform init
+
+      # 5. Check formatting (fails if code isn't formatted with `terraform fmt`)
+      - name: Terraform Format Check
+        run: terraform fmt -check -recursive
+
+      # 6. Validate the configuration (syntax check)
+      - name: Terraform Validate
+        run: terraform validate
+
+      # 7. Run the plan and save output
+      - name: Terraform Plan
+        id: plan
+        run: terraform plan -no-color -out=tfplan 2>&1 | tee plan_output.txt
+        continue-on-error: true
+
+      # 8. Post the plan as a comment on the PR so you can review it
+      - name: Comment Plan on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const plan = fs.readFileSync('terraform/environments/dev/plan_output.txt', 'utf8');
+            const truncated = plan.length > 60000 ? plan.substring(0, 60000) + '\n... (truncated)' : plan;
+            const output = `### Terraform Plan Output
+            \`\`\`
+            ${truncated}
+            \`\`\`
+            *Pushed by: @${{ github.actor }}*`;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            });
+
+      # 9. Fail the workflow if the plan failed
+      - name: Check Plan Status
+        if: steps.plan.outcome == 'failure'
+        run: exit 1
