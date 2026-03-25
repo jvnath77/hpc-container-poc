@@ -171,14 +171,14 @@ resource "google_project_iam_member" "terraform_sa_editor" {
 # Artifact Registry repos, etc.
 resource "google_project_service" "required_apis" {
   for_each = toset([
-    "compute.googleapis.com",           # GCE — virtual machines
-    "container.googleapis.com",         # GKE — Kubernetes
-    "artifactregistry.googleapis.com",  # Container image storage
-    "cloudbuild.googleapis.com",        # CI/CD builds
-    "monitoring.googleapis.com",        # Cloud Monitoring
-    "logging.googleapis.com",           # Cloud Logging
-    "iap.googleapis.com",              # IAP tunnel for SSH
-    "iam.googleapis.com",              # IAM API
+    "compute.googleapis.com",              # GCE — virtual machines
+    "container.googleapis.com",            # GKE — Kubernetes
+    "artifactregistry.googleapis.com",     # Container image storage
+    "cloudbuild.googleapis.com",           # CI/CD builds
+    "monitoring.googleapis.com",           # Cloud Monitoring
+    "logging.googleapis.com",              # Cloud Logging
+    "iap.googleapis.com",                  # IAP tunnel for SSH
+    "iam.googleapis.com",                  # IAM API
     "cloudresourcemanager.googleapis.com", # Project-level operations
   ])
 
