@@ -16,3 +16,20 @@ output "compute_sa_email" {
   value       = google_service_account.hpc_compute_sa.email
 }
 
+# Phase 2 outputs
+output "gke_cluster_name" {
+  description = "Name of the GKE cluster"
+  value       = google_container_cluster.hpc_gke.name
+}
+
+output "gke_cluster_endpoint" {
+  description = "GKE cluster API endpoint"
+  value       = google_container_cluster.hpc_gke.endpoint
+  sensitive   = true
+}
+
+output "artifact_registry_url" {
+  description = "URL for pushing/pulling container images"
+  value       = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.hpc_images.repository_id}"
+}
+
