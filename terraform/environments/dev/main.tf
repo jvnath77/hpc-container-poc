@@ -111,6 +111,14 @@ resource "google_compute_firewall" "allow_internal" {
 # WHY: Instead of giving every VM your personal GCP credentials,
 # we create a "service account" — a special identity for machines.
 # It can read GCS buckets but can't delete your project.
+#
+# import: This SA was created manually before Terraform took over.
+# The import block tells Terraform "this already exists, adopt it."
+import {
+  to = google_service_account.hpc_compute_sa
+  id = "projects/hpc-container-poc/serviceAccounts/hpc-compute-sa@hpc-container-poc.iam.gserviceaccount.com"
+}
+
 resource "google_service_account" "hpc_compute_sa" {
   account_id   = "hpc-compute-sa"
   display_name = "HPC Compute Node Service Account"
@@ -145,23 +153,9 @@ resource "google_project_iam_member" "compute_sa_metric_writer" {
   member  = "serviceAccount:${google_service_account.hpc_compute_sa.email}"
 }
 
-# ---------------------------------------------------------------------------
-# Service Account for Terraform (used by GitHub Actions)
-# ---------------------------------------------------------------------------
-# WHY: GitHub Actions needs a service account to create/manage GCP resources.
-# This SA has broad permissions because it IS the infrastructure manager.
-resource "google_service_account" "terraform_sa" {
-  account_id   = "terraform-ci"
-  display_name = "Terraform CI/CD Service Account"
-  description  = "Used by GitHub Actions to run Terraform plan/apply"
-}
-
-# Grant: Editor role (can create/modify most resources)
-resource "google_project_iam_member" "terraform_sa_editor" {
-  project = var.project_id
-  role    = "roles/editor"
-  member  = "serviceAccount:${google_service_account.terraform_sa.email}"
-}
+# NOTE: The terraform-ci service account is created manually (not by Terraform)
+# because it's a chicken-and-egg problem — Terraform can't create the SA it runs as.
+# See docs/setup-github-actions-gcp.md for the manual setup steps.
 
 # ---------------------------------------------------------------------------
 # Enable Required GCP APIs

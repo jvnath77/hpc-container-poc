@@ -16,7 +16,3 @@ output "compute_sa_email" {
   value       = google_service_account.hpc_compute_sa.email
 }
 
-output "terraform_sa_email" {
-  description = "Email of the Terraform CI/CD service account"
-  value       = google_service_account.terraform_sa.email
-}
