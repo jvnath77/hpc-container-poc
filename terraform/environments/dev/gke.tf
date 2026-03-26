@@ -1,5 +1,5 @@
 # ===========================================================================
-# Phase 2 — Google Kubernetes Engine (GKE)
+# Phase 2 — Google Kubernetes Engine (GKE) + GPU Node Pool
 # ===========================================================================
 #
 # WHAT THIS CREATES:
