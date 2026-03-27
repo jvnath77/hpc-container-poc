@@ -1,0 +1,112 @@
+# ===========================================================================
+# Cloud HPC Toolkit Blueprint — SLURM Cluster on GCP
+# ===========================================================================
+#
+# WHAT THIS CREATES:
+#   1. SLURM controller node (the "brain" — manages job queue)
+#   2. Login node (researchers SSH here to submit jobs)
+#   3. GPU compute partition (auto-scales 0→4 T4 Spot VMs)
+#   4. NFS shared storage (for /home and shared data)
+#
+# HOW TO DEPLOY:
+#   ghpc create slurm/hpc-slurm-blueprint.yaml
+#   ghpc deploy hpc-poc-slurm
+#
+# HOW TO CONNECT:
+#   gcloud compute ssh hpc-poc-slurm-login-0 --tunnel-through-iap --zone us-central1-a
+#
+# HOW TO DESTROY (stop charges):
+#   ghpc destroy hpc-poc-slurm
+
+blueprint_name: hpc-poc-slurm
+
+vars:
+  project_id: hpc-container-poc
+  deployment_name: hpc-poc-slurm
+  region: us-central1
+  zone: us-central1-a
+
+deployment_groups:
+- group: primary
+  modules:
+
+  # -------------------------------------------------------------------------
+  # Network — uses our existing VPC from Phase 1
+  # -------------------------------------------------------------------------
+  # WHY: We already have a VPC with firewall rules. Reuse it instead of
+  # creating a new one (saves money, keeps everything in one network).
+  - id: network
+    source: modules/network/pre-existing-vpc
+    settings:
+      project_id: $(vars.project_id)
+      network_name: hpc-vpc
+      subnetwork_name: hpc-subnet
+
+  # -------------------------------------------------------------------------
+  # Shared NFS storage (from controller node)
+  # -------------------------------------------------------------------------
+  # WHY: All nodes need to share /home directories and job scripts.
+  # The controller exports NFS — simplest option for a POC.
+  # For production, you'd use Filestore or Parallelstore instead.
+
+  # -------------------------------------------------------------------------
+  # SLURM GPU Compute Nodeset
+  # -------------------------------------------------------------------------
+  # WHAT: Defines the GPU machines that actually run jobs.
+  # These nodes auto-scale — 0 when idle, up to 4 when jobs are queued.
+  # Each node: n1-standard-4 (4 vCPU, 15 GB RAM) + 1x T4 GPU
+  # Preemptible (Spot) = ~$0.11/hr per node
+  - id: gpu_nodeset
+    source: community/modules/compute/schedmd-slurm-gcp-v6-nodeset
+    use: [network]
+    settings:
+      node_count_dynamic_max: 4        # Scale up to 4 GPU nodes
+      machine_type: n1-standard-4      # 4 vCPU, 15 GB RAM (min for T4)
+      accelerator_type: nvidia-tesla-t4
+      accelerator_count: 1             # 1 T4 GPU per node
+      preemptible: true                # Spot pricing = ~70% savings
+      disk_size_gb: 100
+      disk_type: pd-balanced           # SSD-backed, good price/perf
+
+  # -------------------------------------------------------------------------
+  # SLURM GPU Partition
+  # -------------------------------------------------------------------------
+  # WHAT: A "partition" is SLURM's way of grouping nodes.
+  # Users submit to this partition: sbatch --partition=gpu ...
+  - id: gpu_partition
+    source: community/modules/compute/schedmd-slurm-gcp-v6-partition
+    use: [gpu_nodeset]
+    settings:
+      partition_name: gpu
+      is_default: true                 # Default partition when user doesn't specify
+
+  # -------------------------------------------------------------------------
+  # SLURM Controller (the "brain")
+  # -------------------------------------------------------------------------
+  # WHAT: Runs slurmctld — the central daemon that:
+  #   - Receives job submissions (sbatch)
+  #   - Manages the job queue
+  #   - Decides which node runs which job
+  #   - Spins up/down compute nodes via auto-scaling
+  #
+  # This node does NOT need a GPU. It's small and cheap.
+  - id: slurm_controller
+    source: community/modules/scheduler/schedmd-slurm-gcp-v6-controller
+    use: [network, gpu_partition]
+    settings:
+      machine_type: n1-standard-4      # 4 vCPU, 15 GB RAM
+      disk_size_gb: 50
+      disk_type: pd-balanced
+
+  # -------------------------------------------------------------------------
+  # SLURM Login Node
+  # -------------------------------------------------------------------------
+  # WHAT: The node researchers SSH into to submit jobs.
+  # They DON'T run jobs here — they use sbatch/srun to submit to compute nodes.
+  # Think of it as the "reception desk" of the cluster.
+  - id: slurm_login
+    source: community/modules/scheduler/schedmd-slurm-gcp-v6-login
+    use: [slurm_controller]
+    settings:
+      machine_type: n1-standard-2      # 2 vCPU, 7.5 GB — just for SSH
+      disk_size_gb: 50

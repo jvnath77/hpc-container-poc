@@ -1,0 +1,86 @@
+# ===========================================================================
+# Deploy or Destroy the SLURM cluster on GCP
+# ===========================================================================
+#
+# WHAT: Uses Cloud HPC Toolkit to create/destroy a SLURM cluster
+# WHY: Manual deployment (not auto on merge) because SLURM costs ~$0.15/hr
+#      even when idle (controller + login node). Only deploy when needed.
+#
+# HOW TO USE:
+#   1. Go to Actions tab in GitHub
+#   2. Click "SLURM Deploy/Destroy"
+#   3. Choose action: "deploy" or "destroy"
+#   4. Click "Run workflow"
+
+name: SLURM Deploy/Destroy
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Action to perform'
+        required: true
+        default: 'deploy'
+        type: choice
+        options:
+          - deploy
+          - destroy
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  slurm:
+    name: SLURM ${{ github.event.inputs.action }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      # Install Cloud HPC Toolkit
+      - name: Install Cloud HPC Toolkit
+        run: |
+          # Download the latest ghpc binary
+          wget -q https://github.com/GoogleCloudPlatform/hpc-toolkit/releases/latest/download/ghpc -O /usr/local/bin/ghpc
+          chmod +x /usr/local/bin/ghpc
+          ghpc --version
+
+      # Install Terraform (needed by ghpc)
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.0
+          terraform_wrapper: false
+
+      # Deploy the SLURM cluster
+      - name: Deploy SLURM cluster
+        if: github.event.inputs.action == 'deploy'
+        run: |
+          echo "=== Creating SLURM deployment ==="
+          ghpc create slurm/hpc-slurm-blueprint.yaml \
+            --vars project_id=hpc-container-poc
+
+          echo "=== Deploying SLURM cluster (this takes ~10-15 minutes) ==="
+          ghpc deploy hpc-poc-slurm --auto-approve
+
+          echo "=== SLURM cluster deployed! ==="
+          echo "Connect with: gcloud compute ssh hpc-poc-slurm-login-0 --tunnel-through-iap --zone us-central1-a"
+
+      # Destroy the SLURM cluster (to stop charges)
+      - name: Destroy SLURM cluster
+        if: github.event.inputs.action == 'destroy'
+        run: |
+          echo "=== Destroying SLURM cluster ==="
+          ghpc destroy hpc-poc-slurm --auto-approve
+          echo "=== SLURM cluster destroyed. No more charges. ==="
